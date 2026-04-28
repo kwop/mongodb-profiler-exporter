@@ -23,6 +23,8 @@ slow_queries_duration_total = Counter('slow_queries_duration_total', 'Total exec
 slow_queries_keys_examined_total = Counter('slow_queries_keys_examined_total', 'Total number of examined keys', default_labels)
 slow_queries_docs_examined_total = Counter('slow_queries_docs_examined_total', 'Total number of examined documents', default_labels)
 slow_queries_nreturned_total = Counter('slow_queries_nreturned_total', 'Total number of returned documents', default_labels)
+mongodb_profiler_level = Gauge('mongodb_profiler_level', 'Current MongoDB profiling level per database (0=off, 1=slow only, 2=all)', ["db"])
+mongodb_profiler_slowms = Gauge('mongodb_profiler_slowms', 'Current MongoDB profiler slowms threshold per database', ["db"])
 
 fields_to_metrics_map = {
     "millis": slow_queries_duration_total,
@@ -162,6 +164,16 @@ def main():
             excluded_dbs = ["local", "admin", "config", "test"]
             valid_dbs = [db for db in databases if db not in excluded_dbs]
             if verbose: print(f"Discovered Databases: {valid_dbs}")
+
+            # Update profiler level gauges for each database (read-only)
+            for db_name in valid_dbs:
+                try:
+                    profile_status = mongo_client[db_name].command({"profile": -1})
+                    mongodb_profiler_level.labels(db=db_name).set(profile_status.get("was", 0))
+                    mongodb_profiler_slowms.labels(db=db_name).set(profile_status.get("slowms", 0))
+                except Exception as e:
+                    logging.warning(f"Could not read profiling level for db {db_name}: {e}")
+
             if verbose: print(f"Start Queries Discovery in system.profile")
 
             # Iterate through valid databases and update metrics
